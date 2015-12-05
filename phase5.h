@@ -12,8 +12,9 @@
 #include <stdlib.h>
 #include <phase1.h>
 #include <phase2.h>
+#include <phase3.h>
+#include <phase4.h>
 #include "vm.h"
-
 
 /*
  * Pager priority.
@@ -47,5 +48,9 @@ typedef struct VmStats {
 extern VmStats	vmStats;
 extern Process processes[MAXPROC];
 extern int vmInitialized;
+
+/*
+ *
+ */
 
 #endif /* _PHASE5_H */

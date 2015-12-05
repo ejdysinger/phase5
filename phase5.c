@@ -17,12 +17,12 @@
 #include <vm.h>
 #include <string.h>
 
-extern void mbox_create(sysargs *args_ptr);
-extern void mbox_release(sysargs *args_ptr);
-extern void mbox_send(sysargs *args_ptr);
-extern void mbox_receive(sysargs *args_ptr);
-extern void mbox_condsend(sysargs *args_ptr);
-extern void mbox_condreceive(sysargs *args_ptr);
+extern void mbox_create(systemArgs *args_ptr);
+extern void mbox_release(systemArgs *args_ptr);
+extern void mbox_send(systemArgs *args_ptr);
+extern void mbox_receive(systemArgs *args_ptr);
+extern void mbox_condsend(systemArgs *args_ptr);
+extern void mbox_condreceive(systemArgs *args_ptr);
 
 Process processes[MAXPROC];
 int vmInitialized = 0;
@@ -33,11 +33,18 @@ FaultMsg faults[MAXPROC]; /* Note that a process can have only
                            * and index them by pid. */
 VmStats  vmStats;
 
+static void
+FaultHandler(int  type,  // USLOSS_MMU_INT
+             void *arg); // Offset within VM region
 
-static void FaultHandler(int type, int offset);
+static void vmInit(systemArgs *sysargsPtr);
+static void vmDestroy(systemArgs *sysargsPtr);
 
-static void vm_init(sysargs *sysargsPtr);
-static void vm_cleanup(sysargs *sysargsPtr);
+int faultMailBox;
+int pagerHouses[MAXPAGERS]; /* keeps track of the pager PIDs to facilitate
+							 * murdering them later
+							 */
+
 /*
  *----------------------------------------------------------------------
  *
@@ -69,8 +76,8 @@ start4(char *arg)
     systemCallVec[SYS_MBOXCONDRECEIVE] = mboxCondreceive;
 
     /* user-process access to VM functions */
-    sys_vec[SYS_VMINIT]    = vm_init;
-    sys_vec[SYS_VMCLEANUP] = vm_cleanup;
+    systemCallVec[SYS_VMINIT]    = vmInit;
+    systemCallVec[SYS_VMDESTROY] = vmDestroy;
 
     result = Spawn("Start5", start5, NULL, 8*USLOSS_MIN_STACK, 2, &pid);
     if (result != 0) {
@@ -103,18 +110,44 @@ start4(char *arg)
  *----------------------------------------------------------------------
  */
 static void
-vmInit(sysargs *sysargsPtr)
+vmInit(systemArgs *sysargsPtr)
 {
-    CheckMode();
-} /* vm_init */
+    // verifies that the
+	CheckMode();
+	void* vmAddress;
+	/*
+	 * Input
+		arg1: number of mappings the MMU should hold
+		arg2: number of virtual pages to use
+		arg3: number of physical page frames to use
+		arg4: number of pager daemons
+		Output
+		arg1: address of the VM region
+		arg4: -1 if illegal values are given as input or the VM region has already been
+		initialized; 0 otherwise.
+	*/
+
+	// verify the parameters provided are legal
+	if(sysargsPtr->arg1 != sysargsPtr->arg2 || sysargsPtr->arg4 > MAXPAGERS){
+		sysargsPtr->arg4 = -1;
+		return;
+	}
+
+	// calls the real vmInit
+	vmAddress = vmInitReal(sysargsPtr->arg1, sysargsPtr->arg2, sysargsPtr->arg3, sysargsPtr->arg4);
+
+	// places the vm address in arg1 and returns
+	sysargsPtr->arg1 = vmAddress;
+
+} /* vmInit */
 
 
 /*
  *----------------------------------------------------------------------
  *
- * vm_cleanup --
+ * vmDestroy --
  *
- * Stub for the VmCleanup system call.
+ * Stub for the VmDestroy system call.
  *
  * Results:
  *      None.
@@ -126,18 +159,18 @@ vmInit(sysargs *sysargsPtr)
  */
 
 static void
-vm_cleanup(sysargs *sysargsPtr)
+vmDestroy(systemArgs *sysargsPtr)
 {
    CheckMode();
-} /* vm_cleanup */
+} /* vmDestroy */
 
 
 /*
  *----------------------------------------------------------------------
  *
- * vm_init_real --
+ * vmInitReal --
  *
- * Called by vm_init.
+ * Called by vmInit.
  * Initializes the VM system by configuring the MMU and setting
  * up the page tables.
  *
@@ -150,43 +183,45 @@ vm_cleanup(sysargs *sysargsPtr)
  *----------------------------------------------------------------------
  */
 void *
-vm_init_real(int mappings, int pages, int frames, int pagers)
+vmInitReal(int mappings, int pages, int frames, int pagers)
 {
    int status;
    int dummy;
+   int i, sec, track, disk;
+   char bufferName[50];
 
    CheckMode();
-   status = MMU_Init(mappings, pages, frames);
-   if (status != MMU_OK) {
-      USLOSS_Console("vm_init: couldn't initialize MMU, status %d\n", status);
+   status = USLOSS_MmuInit(mappings, pages, frames);
+   if (status != USLOSS_MMU_OK) {
+      USLOSS_Console("vmInitReal: couldn't init MMU, status %d\n", status);
       abort();
    }
-   int_vec[MMU_INT] = FaultHandler;
+   // assign the page fault handler function to the interrupt vector table
+   USLOSS_IntVec[USLOSS_MMU_INT] = FaultHandler;
 
-   /*
-    * Initialize page tables.
-    */
 
-   /* 
-    * Create the fault mailbox.
-    */
+   // Initialize page tables.
+   USLOSS_MmuInit(mappings,pages,frames);
 
-   /*
-    * Fork the pagers.
-    */
+   // Create the fault mailbox with MAXPROC slots so that fault PIDs can be passed to pagers
+   faultMailBox = MboxCreate(MAXPROC, 50);
 
-   /*
-    * Zero out, then initialize, the vmStats structure
-    */
+   // Fork the pagers.
+   for(i = 0; i < MAXPAGERS; i++){
+	   sprintf(bufferName,"Pager %d", i+1);
+	   pagerHouses[i] = fork1(bufferName,Pager,NULL,USLOSS_MIN_STACK,PAGER_PRIORITY);
+   }
+
+   // Zero out, then initialize, the vmStats structure
    memset((char *) &vmStats, 0, sizeof(VmStats));
    vmStats.pages = pages;
    vmStats.frames = frames;
-   /*
-    * Initialize other vmStats fields.
-    */
+   if ((i = DiskSize(1, &sec, &track, &disk)) != -1)
+	   vmStats.diskBlocks = disk / USLOSS_MmuPageSize();
+   vmStats.freeDiskBlocks = vmStats.diskBlocks;
 
-   return MMU_Region(&dummy);
-} /* vm_init_real */
+   return USLOSS_MmuRegion(&dummy);
+} /* vmInitReal */
 
 
 /*
@@ -225,9 +260,9 @@ PrintStats(void)
 /*
  *----------------------------------------------------------------------
  *
- * vm_cleanup_real --
+ * vmDestroyReal --
  *
- * Called by vm_clean.
+ * Called by vmDestroy.
  * Frees all of the global data structures
  *
  * Results:
@@ -239,14 +274,19 @@ PrintStats(void)
  *----------------------------------------------------------------------
  */
 void
-vm_cleanup_real(void)
+vmDestroyReal(void)
 {
-
+   int i;
    CheckMode();
-   MMU_Done();
-   /*
-    * Kill the pagers here.
-    */
+   USLOSS_MmuDone();
+
+   // Kill the pagers here; zapping them to interrupt
+   for(i = 0; i < MAXPAGERS; i++){
+	   if(pagerHouses[i] != NULL)
+		   zap(pagerHouses[i]);
+   }
+
+
    /* 
     * Print vm statistics.
     */
@@ -256,8 +296,8 @@ vm_cleanup_real(void)
    console("blocks: %d\n", vmStats.blocks);
    /* and so on... */
 
-} /* vm_cleanup_real */
-
+} /* vmDestroyReal */
+
 /*
  *----------------------------------------------------------------------
  *
@@ -276,21 +316,26 @@ vm_cleanup_real(void)
  *----------------------------------------------------------------------
  */
 static void
-FaultHandler(int type /* MMU_INT */,
-             int arg  /* Offset within VM region */)
+FaultHandler(int  type /* USLOSS_MMU_INT */,
+             void *arg  /* Offset within VM region */)
 {
    int cause;
 
-   assert(type == MMU_INT);
-   cause = MMU_GetCause();
-   assert(cause == MMU_FAULT);
+   int offset = (int) (long) arg;
+
+   assert(type == USLOSS_MMU_INT);
+   cause = USLOSS_MmuGetCause();
+   assert(cause == USLOSS_MMU_FAULT);
    vmStats.faults++;
    /*
     * Fill in faults[pid % MAXPROC], send it to the pagers, and wait for the
     * reply.
     */
+   faults[getpid() % MAXPROC]->addr = arg;
+   faults[getpid() % MAXPROC]->pid = getpid();
+   // perform the send with the
+   MboxSend(faultMailBox,faults[getpid() % MAXPROC], sizeof(void*));
 } /* FaultHandler */
-
 
 /*
  *----------------------------------------------------------------------
@@ -310,13 +355,18 @@ FaultHandler(int type /* MMU_INT */,
 static int
 Pager(char *buf)
 {
+	void * checkBuff;
     while(1) {
         /* Wait for fault to occur (receive from mailbox) */
-        /* Look for free frame */
+    	MboxReceive(faultMailBox, checkBuff, sizeof(void*));
+    	/* Look for free frame in the frameTable located at clockhand */
+
         /* If there isn't one then use clock algorithm to
          * replace a page (perhaps write to disk) */
+
         /* Load page into frame from disk, if necessary */
-        /* Unblock waiting (faulting) process */
+
+    	/* Unblock waiting (faulting) process */
     }
     return 0;
 } /* Pager */
