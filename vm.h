@@ -14,6 +14,7 @@
 #define UNUSED 500
 #define INCORE 501
 /* You'll probably want more states */
+#define INDISK 502
 
 
 /*

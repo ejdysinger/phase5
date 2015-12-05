@@ -12,7 +12,8 @@
 #include <stdlib.h>
 #include <phase1.h>
 #include <phase2.h>
-
+#include <phase3.h>
+#include <phase4.h>
 
 /*
  * Pager priority.
@@ -44,5 +45,9 @@ typedef struct VmStats {
 } VmStats;
 
 extern VmStats	vmStats;
+
+/*
+ *
+ */
 
 #endif /* _PHASE5_H */
