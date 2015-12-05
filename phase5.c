@@ -24,7 +24,7 @@ extern void mbox_receive(sysargs *args_ptr);
 extern void mbox_condsend(sysargs *args_ptr);
 extern void mbox_condreceive(sysargs *args_ptr);
 
-static Process processes[MAXPROC];
+extern Process processes[MAXPROC];
 
 FaultMsg faults[MAXPROC]; /* Note that a process can have only
                            * one fault at a time, so we can
