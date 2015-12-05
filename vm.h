@@ -24,7 +24,7 @@ typedef struct PTE {
     int  frame;      // Frame that stores the page (if any). -1 if none.
     int  diskBlock;  // Disk block that stores the page (if any). -1 if none.
     // Add more stuff here
-    PTE *nextPage;
+    struct PTE *nextPage;
 } PTE;
 
 /*
@@ -34,8 +34,6 @@ typedef struct Process {
     int  numPages;   // Size of the page table.
     PTE  *pageTable; // The page table for the process.
     // Add more stuff here */
-    int pid;
-    
 } Process;
 
 /*

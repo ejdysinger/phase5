@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <phase1.h>
 #include <phase2.h>
+#include "vm.h"
 
 
 /*
@@ -44,5 +45,7 @@ typedef struct VmStats {
 } VmStats;
 
 extern VmStats	vmStats;
+extern Process processes[MAXPROC];
+extern int vmInitialized;
 
 #endif /* _PHASE5_H */
