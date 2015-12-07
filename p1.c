@@ -24,6 +24,7 @@ p1_fork(int pid)
     // Creating Page Table for Process being forked
     PTE *temp = malloc(sizeof(struct PTE));
     temp->nextPage = NULL;
+    temp->diskBlock = -1;
     temp->state = UNUSED;
     processes[getpid()%MAXPROC].pageTable = temp;
     
@@ -80,15 +81,24 @@ p1_quit(int pid)
         return;
     }
     
-    /* Check diskBlocks to see if they are still in use, mark them empty & available*/
-    
-    /* Free'ing all the page entries & Setting numPages to 0 */
+    /* Iterate through all the entries in the quitting processes' Page Table */
     for(;processes[getpid()%MAXPROC].pageTable!=NULL;){
+        
+        /* Check diskBlocks array to see if they are still in use, mark them UNUSED*/
+        if(processes[getpid()%MAXPROC].pageTable->diskBlock != -1){
+            diskBlocks[processes[getpid()%MAXPROC].pageTable->diskBlock] = UNUSED;
+        }
+        /* Unload the mappings from each page to each frame */
+        
+        
+        /* Check frame tables and mark frames used by the process as UNUSED*/
+        
+        /* Free'ing all the page entries */
         PTE *next = processes[getpid()%MAXPROC].pageTable->nextPage;
         free(processes[getpid()%MAXPROC].pageTable);
         processes[getpid()%MAXPROC].pageTable = next;
-        
     }
+    // Setting numPages to 0
     processes[getpid()%MAXPROC].numPages = 0;
     
     /* Free'ing the page table */
