@@ -32,6 +32,16 @@ FaultMsg faults[MAXPROC]; /* Note that a process can have only
                            * and index them by pid. */
 VmStats  vmStats;
 
+// clock hand position
+extern int clockHand;
+
+// frame table and the size of the frame table
+extern FTE * frameTable;
+extern int frameTableSize;
+
+// instance variable to signal pager death
+int pagerkill = 0;
+
 static void
 FaultHandler(int  type,  // USLOSS_MMU_INT
              void *arg); // Offset within VM region
@@ -138,6 +148,9 @@ vmInit(systemArgs *sysargsPtr)
 	// places the vm address in arg1 and returns
 	sysargsPtr->arg1 = vmAddress;
 
+	// set extern indicator variable = 1
+	vmInitialized = 1;
+
 } /* vmInit */
 
 
@@ -198,9 +211,11 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    // assign the page fault handler function to the interrupt vector table
    USLOSS_IntVec[USLOSS_MMU_INT] = FaultHandler;
 
-
    // Initialize page tables.
    USLOSS_MmuInit(mappings,pages,frames);
+
+   // malloc the frame table
+   frameTable = malloc(frames * sizeof(FTE));
 
    // Create the fault mailbox with MAXPROC slots so that fault PIDs can be passed to pagers
    faultMailBox = MboxCreate(MAXPROC, 50);
@@ -358,12 +373,25 @@ Pager(char *buf)
     while(1) {
         /* Wait for fault to occur (receive from mailbox) */
     	MboxReceive(faultMailBox, checkBuff, sizeof(void*));
+
+    	/* if on returning from the mbox the pager daemon is to be terminated, terminate it */
+    	if(pagerkill) break;
+
     	/* Look for free frame in the frameTable located at clockhand */
+    	FTE * temp;
+    	for(temp = frameTable; temp != NULL; temp ++){
+    		if(temp->frame != NULL)
+    			break;
+    	}
 
         /* If there isn't one then use clock algorithm to
          * replace a page (perhaps write to disk) */
+    	if(temp == NULL){
+
+    	}
 
         /* Load page into frame from disk, if necessary */
+
 
     	/* Unblock waiting (faulting) process */
     }

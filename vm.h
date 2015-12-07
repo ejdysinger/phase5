@@ -25,8 +25,19 @@ typedef struct PTE {
     int  frame;      // Frame that stores the page (if any). -1 if none.
     int  diskBlock;  // Disk block that stores the page (if any). -1 if none.
     // Add more stuff here
+    int diskSector;  // the disk sector containing the MMU information
+    int diskTrack;   // the disk track to which the information should be written
     PTE *nextPage;
 } PTE;
+
+/*
+ * Frame table entry
+ */
+typedef struct FTE {
+	void * frame;	// the address of the frame
+	unsigned char reference;
+	FTE * next;
+}FTE;
 
 /*
  * Per-process information.
