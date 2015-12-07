@@ -24,7 +24,8 @@ extern void mbox_receive(systemArgs *args_ptr);
 extern void mbox_condsend(systemArgs *args_ptr);
 extern void mbox_condreceive(systemArgs *args_ptr);
 
-extern Process processes[MAXPROC];
+Process processes[MAXPROC];
+int vmInitialized = 0;
 
 FaultMsg faults[MAXPROC]; /* Note that a process can have only
                            * one fault at a time, so we can
@@ -41,6 +42,10 @@ extern int frameTableSize;
 
 // instance variable to signal pager death
 int pagerkill = 0;
+
+// integer array for disk contents
+extern int diskBlocks[];
+extern int numBlocks;
 
 static void
 FaultHandler(int  type,  // USLOSS_MMU_INT
@@ -206,7 +211,7 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    status = USLOSS_MmuInit(mappings, pages, frames);
    if (status != USLOSS_MMU_OK) {
       USLOSS_Console("vmInitReal: couldn't init MMU, status %d\n", status);
-      abort();
+      abort();checkBuff
    }
    // assign the page fault handler function to the interrupt vector table
    USLOSS_IntVec[USLOSS_MMU_INT] = FaultHandler;
@@ -214,8 +219,19 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    // Initialize page tables.
    USLOSS_MmuInit(mappings,pages,frames);
 
-   // malloc the frame table
+   // malloc the frame table and store its dimension
    frameTable = malloc(frames * sizeof(FTE));
+   frameTableSize = frames;
+
+   //. create disk occupancy table and calculate global disk params based on size of pages from MMU
+   int numTracks;
+   int numSects;
+   int sectSize;
+   DiskSize(1, sectSize,numSects,numTracks);
+   numBlocks = numTracks * numSects * sectSize / USLOSS_MmuPageSize();
+   diskBlocks = malloc(numBlocks * sizeof(int));
+   for (i=0; i < numBlocks; i++)
+	   diskBlocks[i] = UNUSED;
 
    // Create the fault mailbox with MAXPROC slots so that fault PIDs can be passed to pagers
    faultMailBox = MboxCreate(MAXPROC, 50);
@@ -369,20 +385,16 @@ FaultHandler(int  type /* USLOSS_MMU_INT */,
 static int
 Pager(char *buf)
 {
-	void * checkBuff;
+	void * faultObj;
     while(1) {
         /* Wait for fault to occur (receive from mailbox) */
-    	MboxReceive(faultMailBox, checkBuff, sizeof(void*));
+    	MboxReceive(faultMailBox, faultObj, sizeof(void*));
 
     	/* if on returning from the mbox the pager daemon is to be terminated, terminate it */
     	if(pagerkill) break;
 
     	/* Look for free frame in the frameTable located at clockhand */
-    	FTE * temp;
-    	for(temp = frameTable; temp != NULL; temp ++){
-    		if(temp->frame != NULL)
-    			break;
-    	}
+
 
         /* If there isn't one then use clock algorithm to
          * replace a page (perhaps write to disk) */
@@ -391,6 +403,7 @@ Pager(char *buf)
     	}
 
         /* Load page into frame from disk, if necessary */
+    	// load
 
 
     	/* Unblock waiting (faulting) process */
