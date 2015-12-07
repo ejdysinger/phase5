@@ -26,6 +26,7 @@ extern void mbox_condreceive(systemArgs *args_ptr);
 
 Process processes[MAXPROC];
 int vmInitialized = 0;
+int debugFlag = 0;
 
 FaultMsg faults[MAXPROC]; /* Note that a process can have only
                            * one fault at a time, so we can
@@ -219,6 +220,15 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    if ((i = DiskSize(1, &sec, &track, &disk)) != -1)
 	   vmStats.diskBlocks = disk / USLOSS_MmuPageSize();
    vmStats.freeDiskBlocks = vmStats.diskBlocks;
+    
+    
+    //
+    for (i=0; i<MAXPROC; i++){
+        Process * temp = malloc(sizeof(Process));
+        temp->numPages = 0;
+        temp->pageTable = NULL;
+        processes[i] = *temp;
+    }
 
    return USLOSS_MmuRegion(&dummy);
 } /* vmInitReal */

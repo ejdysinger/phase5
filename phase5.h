@@ -16,6 +16,8 @@
 #include <phase4.h>
 #include "vm.h"
 
+extern int debugFlag;
+
 /*
  * Pager priority.
  */

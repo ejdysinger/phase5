@@ -25,6 +25,7 @@ typedef struct PTE {
     int  frame;      // Frame that stores the page (if any). -1 if none.
     int  diskBlock;  // Disk block that stores the page (if any). -1 if none.
     // Add more stuff here
+    int pageNum;
     struct PTE *nextPage;
 } PTE;
 
