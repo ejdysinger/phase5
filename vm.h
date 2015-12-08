@@ -13,13 +13,12 @@
  */
 #define UNUSED 500
 #define INCORE 501
-/* You'll probably want more states */
 #define INDISK 502
 #define INBOTH 503
 
-// macros for datablocks
-#define UNUSED 1401
-#define IN_USE 1402
+// different states for datablocks
+#define DB_UNUSED	1401
+#define DB_INUSE	1402
 
 /*
  * Page table entry.
@@ -31,16 +30,15 @@ typedef struct PTE {
     // Add more stuff here
     int pageNum;
     struct PTE *nextPage;
-
 } PTE;
 
 /*
  * Frame table entry
  */
 typedef struct FTE {
-	int frame;	// the frame number
-	unsigned char useBit;
-	FTE * next;
+	void * frame;	// the frame; NULL if none
+	void * page;    // the page that references this frame (if any); NULL if none
+	int useBit;     // status of frame; DB_UNUSED if free, DB_INUSE if not free
 }FTE;
 
 /*
@@ -49,7 +47,8 @@ typedef struct FTE {
 typedef struct Process {
     int  numPages;   // Size of the page table.
     PTE  *pageTable; // The page table for the process.
-    // Add more stuff here */
+    /* Add more stuff here */
+    int procMbox;    // a mailbox on which the proc can wait for fault resolution
 } Process;
 
 /*
@@ -58,9 +57,8 @@ typedef struct Process {
  */
 typedef struct FaultMsg {
     int  pid;        // Process with the problem.
-    void *addr;      // Address that caused the fault.
+    void *addr;      // Address of the page that caused the fault.
     int  replyMbox;  // Mailbox to send reply.
-    // Add more stuff here.
 } FaultMsg;
 
 #define CheckMode() assert(USLOSS_PsrGet() & USLOSS_PSR_CURRENT_MODE)
