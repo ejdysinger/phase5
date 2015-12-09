@@ -6,7 +6,6 @@
 #include <phase5.h>
 #include <usyscall.h>
 #include <libuser.h>
-#include <vm.h>
 #include <math.h>
 #include <string.h>
 
@@ -16,6 +15,7 @@ extern void mbox_send(systemArgs *args_ptr);
 extern void mbox_receive(systemArgs *args_ptr);
 extern void mbox_condsend(systemArgs *args_ptr);
 extern void mbox_condreceive(systemArgs *args_ptr);
+void * vmInitReal(int mappings, int pages, int frames, int pagers);
 static int Pager(char *buf);
 
 Process processes[MAXPROC];
@@ -29,7 +29,7 @@ FaultMsg faults[MAXPROC]; /* Note that a process can have only
 VmStats  vmStats;
 
 // clock hand position
-extern int clockHand;
+int clockHand;
 
 // frame table and the size of the frame table
 extern FTE * frameTable;
@@ -94,12 +94,12 @@ start4(char *arg)
 
     result = Spawn("Start5", start5, NULL, 8*USLOSS_MIN_STACK, 2, &pid);
     if (result != 0) {
-        console("start4(): Error spawning start5\n");
+        USLOSS_Console("start4(): Error spawning start5\n");
         Terminate(1);
     }
     result = Wait(&pid, &status);
     if (result != 0) {
-        console("start4(): Error waiting for start5\n");
+        USLOSS_Console("start4(): Error waiting for start5\n");
         Terminate(1);
     }
     Terminate(0);
@@ -141,13 +141,13 @@ vmInit(systemArgs *sysargsPtr)
 	*/
 
 	// verify the parameters provided are legal
-	if(sysargsPtr->arg1 != sysargsPtr->arg2 || sysargsPtr->arg4 > MAXPAGERS){
-		sysargsPtr->arg4 = -1;
+	if(sysargsPtr->arg1 != sysargsPtr->arg2 || (int)sysargsPtr->arg4 > MAXPAGERS){
+		sysargsPtr->arg4 = (void *)-1;
 		return;
 	}
 
 	// calls the real vmInit
-	vmAddress = vmInitReal(sysargsPtr->arg1, sysargsPtr->arg2, sysargsPtr->arg3, sysargsPtr->arg4);
+	vmAddress = vmInitReal((int)sysargsPtr->arg1, (int)sysargsPtr->arg2, (int)sysargsPtr->arg3, (int)sysargsPtr->arg4);
 
 	// places the vm address in arg1 and returns
 	sysargsPtr->arg1 = vmAddress;
@@ -207,6 +207,7 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    char bufferName[50];
 
    CheckMode();
+    clockHand=0;
    status = USLOSS_MmuInit(mappings, pages, frames);
    if (status != USLOSS_MMU_OK) {
       USLOSS_Console("vmInitReal: couldn't init MMU, status %d\n", status);
@@ -344,10 +345,10 @@ vmDestroyReal(void)
    /*
     * Print vm statistics.
     */
-   console("vmStats:\n");
-   console("pages: %d\n", vmStats.pages);
-   console("frames: %d\n", vmStats.frames);
-   console("blocks: %d\n", vmStats.diskBlocks);
+   USLOSS_Console("vmStats:\n");
+   USLOSS_Console("pages: %d\n", vmStats.pages);
+   USLOSS_Console("frames: %d\n", vmStats.frames);
+   USLOSS_Console("blocks: %d\n", vmStats.diskBlocks);
    /* and so on... */
 
 } /* vmDestroyReal */

@@ -45,7 +45,7 @@ typedef struct FTE {
 	int state;	 	    // status of frame; FR_UNUSED if free, FR_INUSE if not free
     struct FTE * next;
 
-}FTE;
+} FTE;
 
 /*
  * Per-process information.

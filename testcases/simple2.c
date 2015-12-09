@@ -1,15 +1,17 @@
 /*
  * simple2.c
+ * Reads bytes from page 0 of the vmRegion to be sure they are
+ * all set to 0.
  *
  */
-#include <phase2.h>
 #include <phase5.h>
 #include <usyscall.h>
 #include <libuser.h>
 #include <usloss.h>
 #include <string.h>
+#include <assert.h>
 
-#include "test5.h"
+#define Tconsole USLOSS_Console
 
 #define TEST        "simple2"
 #define PAGES       1
@@ -21,52 +23,74 @@
 #define MAPPINGS    PAGES
 
 
-void *vmRegion;
+extern void *vmRegion;
 
 int sem;
 
 int
 Child(char *arg)
 {
-   int   pid;
-   char  *zeros;
+    int   pid;
+    int   i, memOkay;
+    char *buffer;
 
-   GetPID(&pid);
-   Tconsole("Child(): starting (pid = %d)\n", pid);
+    GetPID(&pid);
+    Tconsole("\nChild(%d): starting\n", pid);
 
-   zeros = calloc(MMU_PageSize(), 1);
-   if (memcmp(vmRegion, zeros, MMU_PageSize()) != 0) {
-      Tconsole("Child(): VmRegion is not zero-filled\n");
-      abort();
-   }
-   verify(vmStats.faults == 1);
+    memOkay = 1;
+    buffer = (char *) vmRegion;
+    for ( i = 0; i < USLOSS_MmuPageSize(); i++ )
+        if ( buffer[i] != 0 )
+            memOkay = 0;
 
-   SemV(sem);
+    if ( memOkay )
+        Tconsole("Child(%d): vmRegion is filled with 0's\n", pid);
+    else
+        Tconsole("Child(%d): vmRegion is NOT zero-filled!\n", pid);
 
-   Terminate(117);
-   return 0;
+    assert(vmStats.faults == 1);
+
+    SemV(sem);
+
+    Tconsole("Child(%d): terminating\n\n", pid);
+
+    Terminate(119);
+    return 0;
 } /* Child */
 
 int
 start5(char *arg)
 {
-   int  pid;
-   int  status;
+    int  pid;
+    int  status;
 
-   Tconsole("start5(): Running %s\n", TEST);
-   Tconsole("start5(): Pagers: %d, Mappings : %d, Pages: %d, Frames: %d, Children %d, Iterations %d, Priority %d.\n", PAGERS, MAPPINGS, PAGES, FRAMES, CHILDREN, ITERATIONS, PRIORITY);
+    Tconsole("start5(): Running:    %s\n", TEST);
+    Tconsole("start5(): Pagers:     %d\n", PAGERS);
+    Tconsole("          Mappings:   %d\n", MAPPINGS);
+    Tconsole("          Pages:      %d\n", PAGES);
+    Tconsole("          Frames:     %d\n", FRAMES);
+    Tconsole("          Children:   %d\n", CHILDREN);
+    Tconsole("          Iterations: %d\n", ITERATIONS);
+    Tconsole("          Priority:   %d\n", PRIORITY);
 
-   vmRegion = VmInit( MAPPINGS, PAGES, FRAMES, PAGERS );
+    status = VmInit( MAPPINGS, PAGES, FRAMES, PAGERS, &vmRegion );
+    Tconsole("start5(): after call to VmInit, status = %d\n\n", status);
+    assert(status == 0);
+    assert(vmRegion != NULL);
 
-   Spawn("Child", Child,  0,USLOSS_MIN_STACK*7,PRIORITY, &pid);
-   SemP( sem);
-   Wait(&pid, &status);
-   verify(status == 117);
+    SemCreate(0, &sem);
 
-   Tconsole("start5 done\n");
-   //PrintStats();
-   VmDestroy();
-   Terminate(1);
+    Spawn("Child", Child, NULL, USLOSS_MIN_STACK * 7, PRIORITY, &pid);
 
-   return 0;
+    SemP( sem);
+
+    Wait(&pid, &status);
+    assert(status == 119);
+
+    Tconsole("start5 done\n");
+    //PrintStats();
+    VmDestroy();
+    Terminate(1);
+
+    return 0;
 } /* start5 */
