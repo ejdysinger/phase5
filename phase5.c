@@ -49,6 +49,8 @@ static void vmInit(systemArgs *sysargsPtr);
 static void vmDestroy(systemArgs *sysargsPtr);
 
 int faultMailBox;
+int clockHandMbox;
+
 int pagerHouses[MAXPAGERS]; /* keeps track of the pager PIDs to facilitate
 							 * murdering them later
 							 */
@@ -58,7 +60,7 @@ int pagerHouses[MAXPAGERS]; /* keeps track of the pager PIDs to facilitate
  *
  * start4 --
  *
- * Initializes the VM system call handlers. 
+ * Initializes the VM system call handlers.
  *
  * Results:
  *      MMU return status
@@ -243,6 +245,9 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    // Create the zero slot fault mailbox so that fault objects can be passed to pagers
    faultMailBox = MboxCreate(MAXPROC, 0);
 
+   // Create zero slot clockHand mailbox
+   clockHandMbox = MboxCreate(0,0);
+
    // Fork the pagers.
    for(i = 0; i < MAXPAGERS; i++){
 	   sprintf(bufferName,"Pager %d", i+1);
@@ -324,7 +329,7 @@ vmDestroyReal(void)
    }
 
 
-   /* 
+   /*
     * Print vm statistics.
     */
    console("vmStats:\n");
@@ -388,7 +393,7 @@ FaultHandler(int  type /* USLOSS_MMU_INT */,
 /*
  *----------------------------------------------------------------------
  *
- * Pager 
+ * Pager
  *
  * Kernel process that handles page faults and does page replacement.
  *
@@ -405,7 +410,9 @@ Pager(char *buf)
 {
 	FaultMsg * faultObj = malloc(sizeof(struct FaultMsg));
 	int iter;
-	int freeFrameFound;
+	void * freeFrameFound;   // a pointer to a free frame in memory
+	char * dummy;            // a dummy buffer for mailbox operations
+
     while(1) {
         /* Wait for fault to occur (receive from mailbox) */
     	MboxReceive(faultMailBox, faultObj, sizeof(void*));
@@ -414,18 +421,21 @@ Pager(char *buf)
     	if(pagerkill) break;
 
     	/* Look for free frame in the frameTable located at clockhand */
-    	for(iter = 0, freeFrameFound = 0; iter < frameTableSize; iter++){
+    	for(iter = 0; iter < frameTableSize; iter++){
     		if(frameTable[iter].useBit == DB_UNUSED){
-    			freeFrameFound = 1;
+    			freeFrameFound = frameTable[iter];
     			break;
     		}
     	}
 
-        /* If there isn't one then use clock algorithm to
-         * replace a page (perhaps write to disk) */
-    	if(freeFrameFound == 1){
-    		// allocate a fresh frame
-    		for(;frameTable[clockHand].useBit == 0;clockHand = (clockHand + 1) % frameTableSize){
+    	if(freeFrameFound == NULL){
+    		// If a free frame isn't found then use clock algorithm to replace a page (perhaps write to disk) */
+    		for(;;clockHand = ++clockHand % frameTableSize){
+    			// enter clockHand mutex to check bits and possibly do assignment
+    			MboxReceive(clockHandMbox, dummy, 0);
+
+    			// check the use bits to see if they have been referenced recently
+				if()
 
     		}
     	}
