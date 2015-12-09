@@ -1,11 +1,3 @@
-/*
- * skeleton.c
- *
- * This is a skeleton for phase5 of the programming assignment. It
- * doesn't do much -- it is just intended to get you started.
- */
-
-
 #include <assert.h>
 #include <phase1.h>
 #include <phase2.h>
@@ -213,7 +205,7 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    status = USLOSS_MmuInit(mappings, pages, frames);
    if (status != USLOSS_MMU_OK) {
       USLOSS_Console("vmInitReal: couldn't init MMU, status %d\n", status);
-      abort();//checkBuff
+      abort();
    }
    // assign the page fault handler function to the interrupt vector table
    USLOSS_IntVec[USLOSS_MMU_INT] = FaultHandler;
@@ -221,9 +213,22 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    // Initialize page tables.
    USLOSS_MmuInit(mappings,pages,frames);
 
-   // malloc the frame table and store its dimension
+   // create page tables and fault mailboxes for each process
+   for (i=0; i<MAXPROC; i++){
+	   Process * temp = malloc(sizeof(Process));
+	   temp->numPages = 0;
+	   temp->pageTable = NULL;             // create the page table
+	   temp->procMbox = MboxCreate(0,0);   // create a mailbox for fault resolution
+	   processes[i] = *temp;
+   }
+
+   // malloc the frame table, initialize each frame within it and store its dimension
    frameTable = malloc(frames * sizeof(FTE));
    frameTableSize = frames;
+   for(i = 0; i < frames; i++){
+	   frameTable[i].frame = malloc(sizeof(USLOSS_MmuPageSize()));
+	   frameTable[i].useBit = DB_UNUSED;
+   }
 
    //. create disk occupancy table and calculate global disk params based on size of pages from MMU
    int numTracks;
@@ -233,10 +238,10 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    numBlocks = numTracks * numSects * sectSize / USLOSS_MmuPageSize();
    diskBlocks = malloc(numBlocks * sizeof(int));
    for (i=0; i < numBlocks; i++)
-	   diskBlocks[i] = UNUSED;
+	   diskBlocks[i] = DB_UNUSED;
 
-   // Create the fault mailbox with MAXPROC slots so that fault PIDs can be passed to pagers
-   faultMailBox = MboxCreate(MAXPROC, 50);
+   // Create the zero slot fault mailbox so that fault objects can be passed to pagers
+   faultMailBox = MboxCreate(MAXPROC, 0);
 
    // Fork the pagers.
    for(i = 0; i < MAXPAGERS; i++){
@@ -251,15 +256,6 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    if ((i = DiskSize(1, &sec, &track, &disk)) != -1)
 	   vmStats.diskBlocks = disk / USLOSS_MmuPageSize();
    vmStats.freeDiskBlocks = vmStats.diskBlocks;
-    
-    
-    //
-    for (i=0; i<MAXPROC; i++){
-        Process * temp = malloc(sizeof(Process));
-        temp->numPages = 0;
-        temp->pageTable = NULL;
-        processes[i] = *temp;
-    }
 
    return USLOSS_MmuRegion(&dummy);
 } /* vmInitReal */
@@ -376,6 +372,17 @@ FaultHandler(int  type /* USLOSS_MMU_INT */,
    faults[getpid() % MAXPROC].pid = getpid();
    // perform the send with the
    MboxSend(faultMailBox,faults[getpid() % MAXPROC].addr, sizeof(void*));
+/*
+ OLD STUFF
+   faults[getpid() % MAXPROC]->addr = arg;
+   faults[getpid() % MAXPROC]->pid = getpid();
+   ProcTable[getpid() % MAXPROC]->
+   // perform the send with the faultMbox
+   MboxSend(faultMailBox,faults[getpid() % MAXPROC], sizeof(void*));
+   // blocks on the process's mbox until the fault is resolved
+   MboxReceive();
+ */
+
 } /* FaultHandler */
 
 /*
@@ -396,7 +403,9 @@ FaultHandler(int  type /* USLOSS_MMU_INT */,
 static int
 Pager(char *buf)
 {
-	void * faultObj;
+	FaultMsg * faultObj = malloc(sizeof(struct FaultMsg));
+	int iter;
+	int freeFrameFound;
     while(1) {
         /* Wait for fault to occur (receive from mailbox) */
     	MboxReceive(faultMailBox, faultObj, sizeof(void*));
@@ -405,19 +414,26 @@ Pager(char *buf)
     	if(pagerkill) break;
 
     	/* Look for free frame in the frameTable located at clockhand */
-
+    	for(iter = 0, freeFrameFound = 0; iter < frameTableSize; iter++){
+    		if(frameTable[iter].useBit == DB_UNUSED){
+    			freeFrameFound = 1;
+    			break;
+    		}
+    	}
 
         /* If there isn't one then use clock algorithm to
          * replace a page (perhaps write to disk) */
-    	if(temp == NULL){
+    	if(freeFrameFound == 1){
+    		// allocate a fresh frame
+    		for(;frameTable[clockHand].useBit == 0;clockHand = (clockHand + 1) % frameTableSize){
 
+    		}
     	}
 
         /* Load page into frame from disk, if necessary */
-    	// load
-
 
     	/* Unblock waiting (faulting) process */
+    	MboxSend(faultObj->replyMbox, buf, 0);
     }
     return 0;
 } /* Pager */
