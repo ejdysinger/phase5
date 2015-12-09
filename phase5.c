@@ -239,7 +239,7 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
 	   else
 		   frameTable[i]->next = frameTable[i+1];
 	   frameTable[i]->page = -1;
-	   frameTable[i]->useBit = FR_UNUSED;
+	   frameTable[i]->state = FR_UNUSED;
    }
 
    //. create disk occupancy table and calculate global disk params based on size of pages from MMU
@@ -435,7 +435,7 @@ Pager(char *buf)
 
     	// Look for free frame in the frameTable
     	for(iter = 0; iter < frameTableSize; iter++){
-    		if(frameTable[iter].useBit == FR_UNUSED){
+    		if(frameTable[iter].state == FR_UNUSED){
     			freeFrameFound = frameTable[iter];
     			break;
     		}

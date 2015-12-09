@@ -88,7 +88,7 @@ p1_switch(int old, int new)
             FTE * tempFrame;
             tempFrame = frameTable;
             for(;tempFrame->next!= NULL && temp->frame!=(int)tempFrame->frame; tempFrame = tempFrame->next);
-            tempFrame->useBit=FR_UNUSED;
+            tempFrame->state=FR_UNUSED;
             vmStats.freeFrames++;
         }
         
@@ -106,11 +106,11 @@ p1_switch(int old, int new)
             if(vmStats.freeFrames>0){
                 FTE * tempFrame;
                 tempFrame = frameTable;
-                for(;tempFrame->next!= NULL && tempFrame->useBit!=FR_UNUSED; tempFrame = tempFrame->next);
+                for(;tempFrame->next!= NULL && tempFrame->state!=FR_UNUSED; tempFrame = tempFrame->next);
                 reply = DiskRead(tempFrame->frame, 1, (int)floor(tempPage->diskBlock/DBPerTrack), (tempPage->diskBlock%DBPerTrack)*sectsPerDB, sectsPerDB, &status);
                 
                 // Update our models
-                tempFrame->useBit=FR_INUSE;
+                tempFrame->state=FR_INUSE;
                 tempPage->state=INCORE;
                 diskBlocks[tempPage->diskBlock-1] = DB_UNUSED;
                 
@@ -157,7 +157,7 @@ p1_quit(int pid)
         FTE * temp;
         temp = frameTable;
         for(;temp->next!= NULL && temp->frame!=processes[getpid()%MAXPROC].pageTable->frame; temp = temp->next);
-        temp->useBit=0;
+        temp->state=0;
         vmStats.freeFrames++;
         
         /* Free'ing all the page entries */

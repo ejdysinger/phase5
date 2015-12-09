@@ -41,9 +41,8 @@ typedef struct PTE {
  * Frame table entry
  */
 typedef struct FTE {
-	int page;    		// the page that references this frame (if any); -1 if none
-	int frame;			// the frame number; -1 if none
-	int useBit;	 	    // status of frame; FR_UNUSED if free, FR_INUSE if not free
+	int * page;    		// the page that references this frame (if any); -1 if none
+	int state;	 	    // status of frame; FR_UNUSED if free, FR_INUSE if not free
     struct FTE * next;
 
 }FTE;
