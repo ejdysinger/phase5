@@ -418,11 +418,12 @@ Pager(char *buf)
 {
 	FaultMsg * faultObj = malloc(sizeof(struct FaultMsg));
 	int iter;
-	void * freeFrameFound;   // a pointer to a free frame in memory
+	int freeFrame;           // the index of the free frame
 	char * pageBuff;         // a buffer for a page that has been written and needs to be transferred to disk
 	char * dummy;            // a dummy buffer for mailbox operations
 	PTE * pgPtr;             // a pointer to the page table entry for an occupied frame
 	int axBits;              // the access bits for a particular page
+	int pageNum;             // the page number for use in the page table
 
 	// allocate the page buffer and zero it out
 	pageBuff = malloc(USLOSS_MmuPageSize());
@@ -435,15 +436,15 @@ Pager(char *buf)
     	if(pagerkill) break;
 
     	// Look for free frame in the frameTable
-    	for(iter = 0; iter < frameTableSize; iter++){
+    	for(iter = 0, freeFrame = -1; iter < frameTableSize; iter++){
     		if(frameTable[iter].state == FR_UNUSED){
-    			freeFrameFound = frameTable[iter];
+    			freeFrame = iter;
     			break;
     		}
     	}
     	/* if a free frame was found, update the page table entry for the offending process
     	 * with the free frame's pointer */
-    	if(freeFrameFound == NULL){
+    	if(freeFrame >= 0){
     		// set pgPtr to the head of the process's page table
     		pgPtr = processes[faultObj->pid % MAXPROC]->pageTable;
 
@@ -456,12 +457,12 @@ Pager(char *buf)
     			MboxReceive(clockHandMbox, dummy, 0);
 
     			// retrieve the use bits to see if they have been referenced recently
-				USLOSS_MmuGetAccess(frameTable[clockHand]->frame,axBits);
+				USLOSS_MmuGetAccess(clockHand,axBits);
 				// if it has been referenced, change the marking to zero and continue
 				if(axBits & USLOSS_MMU_REF){
 					// set the reference bit to unread
 					axBits = axBits & USLOSS_MMU_DIRTY; // preserve value of dirty bit, set ref bit to zero
-					USLOSS_MmuSetAccess(frameTable[clockHand]->frame, axBits);
+					USLOSS_MmuSetAccess(clockHand, axBits);
 				}
 				// if the frame has not been referenced
 				else{
@@ -469,10 +470,21 @@ Pager(char *buf)
 					if(axBits & USLOSS_MMU_DIRTY){
 						// set the pointer to that frame's page table entry
 						pgPtr = getPageTableEntry(faultObj->pid, frameTable[clockHand]->page);
-						// copy the frame into the temporary buffer
-						memcpy(pageBuff,frameTable[clockHand]->frame, USLOSS_MmuPageSize());
+						// copy the page's contents into the pager daemon's buffer
+						memcpy(pageBuff,faultObj->addr + USLOSS_MmuRegion(), USLOSS_MmuPageSize());
 						// erase the information stored in the frame's location
-						memset(frameTable[clockHand]->frame,0,USLOSS_MmuPageSize());
+						memset(faultObj->addr + USLOSS_MmuRegion(),0,USLOSS_MmuPageSize());
+						// update the process's page table entry to represent the new page
+						pageNum = faultObj->addr / USLOSS_MmuPageSize();
+						pgPtr = processes[faultObj->pid % MAXPROC]->pageTable;
+						// search the page table for the appropriate page entry; create a new one if it doesn't exist
+						for(;pgPtr != NULL; pgPtr = pgPtr->nextPage){
+							if(pgPtr->page == (faultObj->addr / USLOSS_MmuPageSize())){
+								pgPtr->frame = clockHand;
+							}
+
+						}
+
 					}
 				}
 				// exit clockHand mutex
