@@ -1,0 +1,10 @@
+ 1        sentinel
+ 2        start1
+ 3        start2
+ 4        start3
+ 5        Clock driver
+ 6        DiskDriver0
+ 7        DiskDriver1
+ 8        start4
+ 9        start5
+10        Pager0

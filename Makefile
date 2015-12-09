@@ -21,6 +21,8 @@ INCLUDE = ./usloss/include
 
 CFLAGS = -Wall -g -std=gnu99 -I${INCLUDE} -I.
 
+UNAME := $(shell uname -s)
+
 ifeq ($(UNAME), Darwin)
         CFLAGS += -D_XOPEN_SOURCE
 endif
@@ -32,12 +34,11 @@ TESTS = test1 test2 test3 test4 simple1 simple2 simple3 simple4 simple5 \
         chaos replace1 outOfSwap replace2 gen clock quit 
 LIBS = $(TESTDIR)/Tconsole.o -lpatrickphase4 -lpatrickphase3 -lpatrickphase2 \
        -lpatrickphase1 -lusloss -lpatrickphase1 -lpatrickphase2 \
-       -lpatrickphase3 -lpatrickphase4 -lphase5 -luser
+       -lpatrickphase3 -lpatrickphase4 -lphase5
 
 $(TARGET):	$(COBJS)
 		$(AR) -r $@ $(COBJS) 
 
-#$(TESTS):	$(TARGET) $(TESTDIR)/$$@.c
 $(TESTS):	$(TARGET)
 	$(CC) $(CFLAGS) -c $(TESTDIR)/$@.c
 	$(CC) $(LDFLAGS) -o $@ $@.o $(LIBS)
@@ -47,6 +48,5 @@ clean:
               chaos.o chaos quit.o quit replace?.o replace? outOfSwap.o \
               outOfSwap clock.o clock core term[0-3].out
 
-submit: $(CSRCS) $(HDRS) $(TURNIN)
+submit: $(CSRCS) $(HDRS)
 	tar cvzf phase5.tgz $(CSRCS) $(HDRS) Makefile
-
