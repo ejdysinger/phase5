@@ -183,7 +183,6 @@ static void
 vmDestroy(systemArgs *sysargsPtr)
 {
    CheckMode();
-    vmDestroyReal();
 } /* vmDestroy */
 
 
@@ -234,7 +233,6 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
 	   processes[i] = *temp;
    }
 
-   // malloc the frame table, initialize each frame within it and store its dimension
    frameTableSize = frames;
     
     frameTable = malloc(sizeof(FTE));
@@ -254,9 +252,8 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
        temp->page = -1;
        temp->state = FR_UNUSED;
        temp->procNum = -1;
-	   // assign the next pointer
-       current->next = temp;
    }
+
 
    //. create disk occupancy table and calculate global disk params based on size of pages from MMU
    int numTracks;
@@ -289,9 +286,9 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    memset((char *) &vmStats, 0, sizeof(VmStats));
    vmStats.pages = pages;
    vmStats.frames = frames;
-    vmStats.diskBlocks = numBlocks;
+   if ((i = DiskSize(1, &sec, &track, &disk)) != -1)
+	   vmStats.diskBlocks = disk / USLOSS_MmuPageSize();
    vmStats.freeDiskBlocks = vmStats.diskBlocks;
-    vmStats.freeFrames = frames;
 
     int *numPagesPtr;
     vmRegion = USLOSS_MmuRegion(numPagesPtr);
