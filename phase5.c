@@ -23,6 +23,7 @@ extern void mbox_send(systemArgs *args_ptr);
 extern void mbox_receive(systemArgs *args_ptr);
 extern void mbox_condsend(systemArgs *args_ptr);
 extern void mbox_condreceive(systemArgs *args_ptr);
+static int Pager(char *buf);
 
 Process processes[MAXPROC];
 int vmInitialized = 0;
@@ -45,8 +46,8 @@ extern int frameTableSize;
 int pagerkill = 0;
 
 // integer array for disk contents
-extern int diskBlocks[];
-extern int numBlocks;
+extern int *diskBlocks;
+int numBlocks;
 
 static void
 FaultHandler(int  type,  // USLOSS_MMU_INT
@@ -83,12 +84,12 @@ start4(char *arg)
     int status;
 
     /* to get user-process access to mailbox functions */
-    systemCallVec[SYS_MBOXCREATE]      = mboxCreate;
-    systemCallVec[SYS_MBOXRELEASE]     = mboxRelease;
-    systemCallVec[SYS_MBOXSEND]        = mboxSend;
-    systemCallVec[SYS_MBOXRECEIVE]     = mboxReceive;
-    systemCallVec[SYS_MBOXCONDSEND]    = mboxCondsend;
-    systemCallVec[SYS_MBOXCONDRECEIVE] = mboxCondreceive;
+    systemCallVec[SYS_MBOXCREATE]      = mbox_create;
+    systemCallVec[SYS_MBOXRELEASE]     = mbox_release;
+    systemCallVec[SYS_MBOXSEND]        = mbox_send;
+    systemCallVec[SYS_MBOXRECEIVE]     = mbox_receive;
+    systemCallVec[SYS_MBOXCONDSEND]    = mbox_condsend;
+    systemCallVec[SYS_MBOXCONDRECEIVE] = mbox_condreceive;
 
     /* user-process access to VM functions */
     systemCallVec[SYS_VMINIT]    = vmInit;
@@ -212,7 +213,7 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    status = USLOSS_MmuInit(mappings, pages, frames);
    if (status != USLOSS_MMU_OK) {
       USLOSS_Console("vmInitReal: couldn't init MMU, status %d\n", status);
-      abort();checkBuff
+      abort();//checkBuff
    }
    // assign the page fault handler function to the interrupt vector table
    USLOSS_IntVec[USLOSS_MMU_INT] = FaultHandler;
@@ -228,7 +229,7 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    int numTracks;
    int numSects;
    int sectSize;
-   DiskSize(1, sectSize,numSects,numTracks);
+   DiskSize(1, &sectSize,&numSects,&numTracks);
    numBlocks = numTracks * numSects * sectSize / USLOSS_MmuPageSize();
    diskBlocks = malloc(numBlocks * sizeof(int));
    for (i=0; i < numBlocks; i++)
@@ -333,7 +334,7 @@ vmDestroyReal(void)
    console("vmStats:\n");
    console("pages: %d\n", vmStats.pages);
    console("frames: %d\n", vmStats.frames);
-   console("blocks: %d\n", vmStats.blocks);
+   console("blocks: %d\n", vmStats.diskBlocks);
    /* and so on... */
 
 } /* vmDestroyReal */
@@ -371,10 +372,10 @@ FaultHandler(int  type /* USLOSS_MMU_INT */,
     * Fill in faults[pid % MAXPROC], send it to the pagers, and wait for the
     * reply.
     */
-   faults[getpid() % MAXPROC]->addr = arg;
-   faults[getpid() % MAXPROC]->pid = getpid();
+   faults[getpid() % MAXPROC].addr = arg;
+   faults[getpid() % MAXPROC].pid = getpid();
    // perform the send with the
-   MboxSend(faultMailBox,faults[getpid() % MAXPROC], sizeof(void*));
+   MboxSend(faultMailBox,faults[getpid() % MAXPROC].addr, sizeof(void*));
 } /* FaultHandler */
 
 /*

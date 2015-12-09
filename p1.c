@@ -55,19 +55,27 @@ p1_switch(int old, int new)
      -Then read all the pages from disk from the new process and map them to frames & map new frames
      */
     PTE *temp;
+    // Iterate through all the old processes' pages
     for(temp = processes[old%MAXPROC].pageTable; temp != NULL; temp = temp->nextPage){
         int *framePtr;
         int *protPtr;
         int reply;
-        reply = USLOSS_MmuGetMap(TAG, temp->pageNum, framePtr, protPtr);
-        if(debugFlag){
-            if(reply == USLOSS_MMU_ERR_NOMAP){
-                USLOSS_Console("p1_switch(): No mapping found for the page %d for process # %d\n", temp->pageNum, old);
+        // If a page is in memory, unmap
+        if(temp->state == INCORE || temp->state == INBOTH){
+            reply = USLOSS_MmuGetMap(TAG, temp->pageNum, framePtr, protPtr);
+            if(debugFlag){
+                if(reply == USLOSS_MMU_ERR_NOMAP){
+                    USLOSS_Console("p1_switch(): No mapping found for the page %d for process # %d\n", temp->pageNum, old);
+                }
             }
+            USLOSS_MmuUnmap(TAG, temp->pageNum);
+            int i;
+            for(i=0; i<numBlocks; i++){
+                if(diskBlocks[i])
+            }
+            
         }
         
-        
-        USLOSS_MmuUnmap(TAG, temp->pageNum);
     }
     
     
@@ -88,10 +96,16 @@ p1_quit(int pid)
         if(processes[getpid()%MAXPROC].pageTable->diskBlock != -1){
             diskBlocks[processes[getpid()%MAXPROC].pageTable->diskBlock] = UNUSED;
         }
-        /* Unload the mappings from each page to each frame */
-        
+        /* If page is in memory, unload the mappings from page to frame */
+        if(processes[getpid()%MAXPROC].pageTable->state == INCORE || processes[getpid()%MAXPROC].pageTable->state == INBOTH){
+            USLOSS_MmuUnmap(TAG, processes[getpid()%MAXPROC].pageTable->pageNum);
+        }
         
         /* Check frame tables and mark frames used by the process as UNUSED*/
+        FTE * temp;
+        temp = frameTable;
+        for(;temp->next!= NULL && temp->frame!=processes[getpid()%MAXPROC].pageTable->frame; temp = temp->next);
+        temp->useBit=0;
         
         /* Free'ing all the page entries */
         PTE *next = processes[getpid()%MAXPROC].pageTable->nextPage;

@@ -50,9 +50,12 @@ typedef struct VmStats {
 extern VmStats	vmStats;
 extern Process processes[MAXPROC];
 extern int vmInitialized;
-extern int diskOccupancy[];
+extern int *diskBlocks;
+extern int numBlocks;
 extern FTE * frameTable;
 extern int frameTableSize;
+extern int start5(char *arg);
+
 
 /*
  *

@@ -40,7 +40,7 @@ typedef struct PTE {
 typedef struct FTE {
 	int frame;	// the frame number
 	unsigned char useBit;
-	FTE * next;
+	struct FTE * next;
 }FTE;
 
 /*
