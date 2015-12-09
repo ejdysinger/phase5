@@ -43,6 +43,9 @@ $(TESTS):	$(TARGET)
 	$(CC) $(CFLAGS) -c $(TESTDIR)/$@.c
 	$(CC) $(LDFLAGS) -o $@ $@.o $(LIBS)
 
+Tconsole:	Tconsole.o
+	$(CC) $(CFLAGS) -c $(TESTDIR)/$@.c
+
 clean:
 	rm -f $(COBJS) $(TARGET) test?.o test? simple?.o simple? gen.o gen \
               chaos.o chaos quit.o quit replace?.o replace? outOfSwap.o \
