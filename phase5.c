@@ -231,8 +231,15 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    frameTable = malloc(frames * sizeof(FTE));
    frameTableSize = frames;
    for(i = 0; i < frames; i++){
-	   frameTable[i].frame = malloc(sizeof(USLOSS_MmuPageSize()));
-	   frameTable[i].useBit = FR_UNUSED;
+	   // each frame gets an address in memory, starting at the top of the VM region
+	   frameTable[i]->frame = i*USLOSS_MmuPageSize() + USLOSS_MmuRegion(NULL);
+	   // assign the next pointer
+	   if(i == frames - 1)
+		   frameTable[i]->next = NULL;
+	   else
+		   frameTable[i]->next = frameTable[i+1];
+	   frameTable[i]->page = -1;
+	   frameTable[i]->useBit = FR_UNUSED;
    }
 
    //. create disk occupancy table and calculate global disk params based on size of pages from MMU
@@ -414,7 +421,6 @@ Pager(char *buf)
 	char * pageBuff;         // a buffer for a page that has been written and needs to be transferred to disk
 	char * dummy;            // a dummy buffer for mailbox operations
 	PTE * pgPtr;             // a pointer to the page table entry for an occupied frame
-	int pageNum;             // the page
 	int axBits;              // the access bits for a particular page
 
 	// allocate the page buffer and zero it out
@@ -424,22 +430,26 @@ Pager(char *buf)
     while(1) {
         /* Wait for fault to occur (receive from mailbox) */
     	MboxReceive(faultMailBox, faultObj, sizeof(void*));
-    	/* if on returning from the mbox the pager daemon is to be terminated, terminate it */
+    	// if on returning from the mbox the pager daemon is to be terminated, terminate it
     	if(pagerkill) break;
 
-    	//calculate the page number
-		pageNum = faultObj->addr / USLOSS_MmuPageSize();
-
-    	/* Look for free frame in the frameTable */
+    	// Look for free frame in the frameTable
     	for(iter = 0; iter < frameTableSize; iter++){
-    		if(frameTable[iter].useBit == DB_UNUSED){
+    		if(frameTable[iter].useBit == FR_UNUSED){
     			freeFrameFound = frameTable[iter];
     			break;
     		}
     	}
-
-    	// If a free frame isn't found then use clock algorithm to replace a page (perhaps write to disk)
+    	/* if a free frame was found, update the page table entry for the offending process
+    	 * with the free frame's pointer */
     	if(freeFrameFound == NULL){
+    		// set pgPtr to the head of the process's page table
+    		pgPtr = processes[faultObj->pid % MAXPROC]->pageTable;
+
+    	}
+    	/* If a free frame isn't found then use clock algorithm to replace a page within the
+    	 * frame table (perhaps write to disk) */
+    	else{
     		for(;;clockHand = ++clockHand % frameTableSize){
     			// enter clockHand mutex to check bits and possibly do assignment
     			MboxReceive(clockHandMbox, dummy, 0);
