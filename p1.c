@@ -1,6 +1,7 @@
 
 #include "usloss.h"
 #include "phase5.h"
+#include <math.h>
 
 
 
@@ -52,14 +53,16 @@ p1_switch(int old, int new)
     /* 
      -Iterate through the old process' page table and unload all mappings from MMU & write all
      those pages to disk.
-     -Then read all the pages from disk from the new process and map them to frames & map new frames
      */
     PTE *temp;
     // Iterate through all the old processes' pages
     for(temp = processes[old%MAXPROC].pageTable; temp != NULL; temp = temp->nextPage){
+        if(temp->state == UNUSED)
+            continue;
         int *framePtr;
         int *protPtr;
         int reply;
+        int status;
         // If a page is in memory, unmap
         if(temp->state == INCORE || temp->state == INBOTH){
             reply = USLOSS_MmuGetMap(TAG, temp->pageNum, framePtr, protPtr);
@@ -70,15 +73,63 @@ p1_switch(int old, int new)
             }
             USLOSS_MmuUnmap(TAG, temp->pageNum);
             int i;
+            // Find a free diskBlock to write the old frames to
             for(i=0; i<numBlocks; i++){
-                if(diskBlocks[i])
+                if(diskBlocks[i]==DB_UNUSED){
+                    // Write to disk 1, the contents of framePtr
+                    DiskWrite(framePtr, 1, (int)floor(i/DBPerTrack), (i%DBPerTrack)*sectsPerDB, sectsPerDB, &status);
+                    diskBlocks[i] = DB_INUSE;
+                    temp->state = INDISK;
+                    temp->diskBlock=i+1;
+                    vmStats.freeDiskBlocks--;
+                }
             }
-            
+            // Find the old frame and mark it as not in use anymore
+            FTE * tempFrame;
+            tempFrame = frameTable;
+            for(;tempFrame->next!= NULL && temp->frame!=(int)tempFrame->frame; tempFrame = tempFrame->next);
+            tempFrame->useBit=FR_UNUSED;
+            vmStats.freeFrames++;
         }
         
     }
     
+    // Read all the pages from disk from the new process and map them to frames & map new frames
+    PTE *tempPage;
+    for(tempPage = processes[new%MAXPROC].pageTable; tempPage != NULL; tempPage = tempPage->nextPage){
+        if (tempPage->state == UNUSED)
+            continue;
+        int status;
+        int reply;
+        // If page in disk, attempt to bring to frame
+        if(tempPage->state == INDISK){
+            if(vmStats.freeFrames>0){
+                FTE * tempFrame;
+                tempFrame = frameTable;
+                for(;tempFrame->next!= NULL && tempFrame->useBit!=FR_UNUSED; tempFrame = tempFrame->next);
+                reply = DiskRead(tempFrame->frame, 1, (int)floor(tempPage->diskBlock/DBPerTrack), (tempPage->diskBlock%DBPerTrack)*sectsPerDB, sectsPerDB, &status);
+                
+                // Update our models
+                tempFrame->useBit=FR_INUSE;
+                tempPage->state=INCORE;
+                diskBlocks[tempPage->diskBlock-1] = DB_UNUSED;
+                
+                // Map the page to the frame
+                USLOSS_MmuMap(TAG, tempPage->pageNum, tempFrame->frame, USLOSS_MMU_PROT_RW);
+                
+                // Update the vmStats
+                vmStats.freeDiskBlocks++;
+                vmStats.freeFrames--;
+            }
+            else{
+                USLOSS_Console("p1_switch(): The vm does not have any more frames to map the new processes' pages to.\n");
+                break;
+            }
+        }
+    }
     
+    
+    vmStats.switches++;
 } /* p1_switch */
 
 void
@@ -95,6 +146,7 @@ p1_quit(int pid)
         /* Check diskBlocks array to see if they are still in use, mark them UNUSED*/
         if(processes[getpid()%MAXPROC].pageTable->diskBlock != -1){
             diskBlocks[processes[getpid()%MAXPROC].pageTable->diskBlock] = UNUSED;
+            vmStats.freeDiskBlocks++;
         }
         /* If page is in memory, unload the mappings from page to frame */
         if(processes[getpid()%MAXPROC].pageTable->state == INCORE || processes[getpid()%MAXPROC].pageTable->state == INBOTH){
@@ -106,6 +158,7 @@ p1_quit(int pid)
         temp = frameTable;
         for(;temp->next!= NULL && temp->frame!=processes[getpid()%MAXPROC].pageTable->frame; temp = temp->next);
         temp->useBit=0;
+        vmStats.freeFrames++;
         
         /* Free'ing all the page entries */
         PTE *next = processes[getpid()%MAXPROC].pageTable->nextPage;
@@ -119,7 +172,6 @@ p1_quit(int pid)
     free(&processes[getpid()%MAXPROC]);
     
     if (debugFlag)
-
         USLOSS_Console("p1_quit() called: pid = %d\n", pid);
 } /* p1_quit */
 

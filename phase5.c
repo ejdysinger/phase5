@@ -7,6 +7,7 @@
 #include <usyscall.h>
 #include <libuser.h>
 #include <vm.h>
+#include <math.h>
 #include <string.h>
 
 extern void mbox_create(systemArgs *args_ptr);
@@ -40,6 +41,8 @@ int pagerkill = 0;
 // integer array for disk contents
 extern int *diskBlocks;
 int numBlocks;
+int DBPerTrack;
+int sectsPerDB;
 
 static void
 FaultHandler(int  type,  // USLOSS_MMU_INT
@@ -236,7 +239,9 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    int sectSize;
    DiskSize(1, &sectSize,&numSects,&numTracks);
    numBlocks = numTracks * numSects * sectSize / USLOSS_MmuPageSize();
+    DBPerTrack = numBlocks/numTracks;
    diskBlocks = malloc(numBlocks * sizeof(int));
+    sectsPerDB = (int)ceil(USLOSS_MmuPageSize()/sectSize);
    for (i=0; i < numBlocks; i++)
 	   diskBlocks[i] = DB_UNUSED;
 

@@ -52,6 +52,8 @@ extern Process processes[MAXPROC];
 extern int vmInitialized;
 extern int *diskBlocks;
 extern int numBlocks;
+extern int DBPerTrack;
+extern int sectsPerDB;
 extern FTE * frameTable;
 extern int frameTableSize;
 extern int start5(char *arg);
