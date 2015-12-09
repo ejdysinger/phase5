@@ -339,11 +339,13 @@ vmDestroyReal(void)
    CheckMode();
    USLOSS_MmuDone();
 
-   // Kill the pagers here; zapping them to interrupt
+   // Kill the pagers here; set signal variable to indicate death and send to faultMbox
+   pagerkill = 1;
+   char * dummy;
    for(i = 0; i < MAXPAGERS; i++){
-	   if(pagerHouses[i] != NULL)
-		   zap(pagerHouses[i]);
+	   MboxCondSend(faultMailBox, dummy,0);
    }
+   // clear the pager house
 
 
    /*
@@ -437,7 +439,14 @@ Pager(char *buf)
         /* Wait for fault to occur (receive from mailbox) */
     	MboxReceive(faultMailBox, faultObj, sizeof(void*));
     	// if on returning from the mbox the pager daemon is to be terminated, terminate it
-    	if(pagerkill) break;
+    	if(pagerkill){
+    		free(faultObj);
+    		free(pageBuff);
+    		break;
+    	}
+
+    	// search the page table for the appropriate page entry; create a new one if it doesn't exist
+		pgPtr = getPageTableEntry(processes[faultObj->pid % MAXPROC]->pageTable, pageNum);
 
     	// Look for free frame in the frameTable
     	for(iter = 0, freeFrame = -1; iter < frameTableSize; iter++){
@@ -449,8 +458,6 @@ Pager(char *buf)
     	/* if a free frame was found, update the page table entry for the offending process
     	 * with the free frame's pointer */
     	if(freeFrame >= 0){
-    		// search the page table for the appropriate page entry; create a new one if it doesn't exist
-			pgPtr = getPageTableEntry(processes[faultObj->pid % MAXPROC]->pageTable, pageNum);
 			// place the frame information in it and return
 			pgPtr->frame = freeFrame;
 			pgPtr->state = INCORE;
@@ -485,27 +492,22 @@ Pager(char *buf)
 						// copy the page's contents into the pager daemon's buffer
 						memcpy(pageBuff,frameTable[clockHand]->page + USLOSS_MmuRegion(), USLOSS_MmuPageSize());
 						// write the page contents to disk
-						pageDiskWrite(pageBuff, pageNum);
-						//
-
+						pgPtr->diskBlock = pageDiskWrite(pageBuff, pageNum);
+						pgPtr->state = INDISK;
 					}
-					// search the page table for the appropriate page entry; create a new one if it doesn't exist
-					pgPtr = getPageTableEntry(processes[faultObj->pid % MAXPROC]->pageTable, pageNum);
 					// if the page has information stored on disk, write it to memory
 					if(pgPtr->state == INDISK)
 						pageDiskFetch(pgPtr->diskBlock, pgPtr->page);
 				}
 				// exit clockHand mutex
 				MboxCondReceive(clockHandMbox, dummy, 0);
-    		}for(dB = 0; dB < diskBlocks && diskBlocks[dB] == DB_UNUSED; dB++);
+    		}
     	}
     	// Unblock waiting (faulting) process
     	MboxSend(faultObj->replyMbox, buf, 0);
     }
     return 0;
 } /* Pager */
-
-
 
 PTE * getPageTableEntry(PTE * head, int pgNum){
 	PTE * target = head;
@@ -516,7 +518,7 @@ PTE * getPageTableEntry(PTE * head, int pgNum){
 			break;
 		else if(target->nextPage == NULL){
 			// the page never had an entry; create one
-			target->nextPage = malloc(sizeof(PTE));for(dB = 0; dB < diskBlocks && diskBlocks[dB] == DB_UNUSED; dB++);
+			target->nextPage = malloc(sizeof(PTE));
 			target = target->nextPage;
 			target->page = pgNum;
 			target->diskBlock = -1;
