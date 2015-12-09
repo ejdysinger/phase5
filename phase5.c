@@ -259,7 +259,7 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    faultMailBox = MboxCreate(MAXPROC, 0);
 
    // Create zero slot clockHand mailbox
-   clockHandMbox = MboxCreate(0,0);
+   clockHandMbox = MboxCreate(1,0);
 
    // Fork the pagers.
    for(i = 0; i < MAXPAGERS; i++){
@@ -454,7 +454,7 @@ Pager(char *buf)
     	else{
     		for(;;clockHand = ++clockHand % frameTableSize){
     			// enter clockHand mutex to check bits and possibly do assignment
-    			MboxReceive(clockHandMbox, dummy, 0);
+    			MboxSend(clockHandMbox, dummy, 0);
 
     			// retrieve the use bits to see if they have been referenced recently
 				USLOSS_MmuGetAccess(clockHand,axBits);
@@ -466,36 +466,28 @@ Pager(char *buf)
 				}
 				// if the frame has not been referenced
 				else{
-					// if the frame is dirty, move the page contents to the temporary buffer to be written to disk
+					// find the page's entry in its process's page table, or create it otherwise
+					pageNum = faultObj->addr / USLOSS_MmuPageSize();
+					pgTargetFinder(pgPtr,faultObj->pid, pageNum);
+					/* if the frame is dirty, move the page contents to the temporary buffer to be written to disk */
 					if(axBits & USLOSS_MMU_DIRTY){
-						// set the pointer to that frame's page table entry
-						pgPtr = getPageTableEntry(faultObj->pid, frameTable[clockHand]->page);
 						// copy the page's contents into the pager daemon's buffer
-						memcpy(pageBuff,faultObj->addr + USLOSS_MmuRegion(), USLOSS_MmuPageSize());
-						// erase the information stored in the frame's location
-						memset(faultObj->addr + USLOSS_MmuRegion(),0,USLOSS_MmuPageSize());
-						// update the process's page table entry to represent the new page
-						pageNum = faultObj->addr / USLOSS_MmuPageSize();
-						pgPtr = processes[faultObj->pid % MAXPROC]->pageTable;
-						// search the page table for the appropriate page entry; create a new one if it doesn't exist
-						for(;pgPtr != NULL; pgPtr = pgPtr->nextPage){
-							if(pgPtr->page == (faultObj->addr / USLOSS_MmuPageSize())){
-								pgPtr->frame = clockHand;
-							}
-
-						}
-
+						memcpy(pageBuff,frameTable[clockHand]->page + USLOSS_MmuRegion(), USLOSS_MmuPageSize());
+						writePageToDisk(pageBuff, pageNum);
 					}
+					pgPtr = processes[faultObj->pid % MAXPROC]->pageTable;
+					// search the page table for the appropriate page entry; create a new one if it doesn't exist
+					for(;pgPtr != NULL; pgPtr = pgPtr->nextPage){
+						if(pgPtr->page == (faultObj->addr / USLOSS_MmuPageSize())){
+							pgPtr->frame = clockHand;
+						}
+					}
+
 				}
 				// exit clockHand mutex
-				MboxSend(clockHandMbox, dummy, 0);
+				MboxReceive(clockHandMbox, dummy, 0);
     		}
     	}
-
-        // Load page into frame from disk, if necessary
-
-    	// load the mapping information into the faulted process's page table
-
     	// Unblock waiting (faulting) process
     	MboxSend(faultObj->replyMbox, buf, 0);
     }
