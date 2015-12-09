@@ -18,6 +18,9 @@ extern void mbox_condreceive(systemArgs *args_ptr);
 void * vmInitReal(int mappings, int pages, int frames, int pagers);
 static int Pager(char *buf);
 void vmDestroyReal(void);
+PTE * getPageTableEntry(PTE * head, int pgNum);
+void pageDiskFetch(int dB, int pg);
+int pageDiskWrite(char *pageBuff);
 
 Process processes[MAXPROC];
 int vmInitialized = 0;
@@ -440,6 +443,7 @@ Pager(char *buf)
 	PTE * pgPtr;             // a pointer to the page table entry for an occupied frame
 	int axBits;              // the access bits for a particular page
 	int pageNum;             // the page number for use in the page table
+    int * numPgsPtr;
 
 	// allocate the page buffer and zero it out
 	pageBuff = malloc(USLOSS_MmuPageSize());
@@ -462,7 +466,7 @@ Pager(char *buf)
     	 * with the free frame's pointer */
     	if(freeFrame >= 0){
     		// search the page table for the appropriate page entry; create a new one if it doesn't exist
-			pgPtr = getPageTableEntry(processes[faultObj->pid % MAXPROC]->pageTable, pageNum);
+			pgPtr = getPageTableEntry(processes[faultObj->pid % MAXPROC].pageTable, pageNum);
 			// place the frame information in it and return
 			pgPtr->frame = freeFrame;
 			pgPtr->state = INCORE;
@@ -480,7 +484,7 @@ Pager(char *buf)
     			MboxSend(clockHandMbox, dummy, 0);
 
     			// retrieve the use bits to see if they have been referenced recently
-				USLOSS_MmuGetAccess(clockHand,axBits);
+				USLOSS_MmuGetAccess(clockHand,&axBits);
 				// if it has been referenced, change the marking to zero and continue
 				if(axBits & USLOSS_MMU_REF){
 					// set the reference bit to unread
@@ -490,26 +494,28 @@ Pager(char *buf)
 				// if the frame has not been referenced
 				else{
 					// find the page's entry in its process's page table, or create it otherwise
-					pageNum = faultObj->addr / USLOSS_MmuPageSize();
+					pageNum = (int)faultObj->addr / USLOSS_MmuPageSize();
 					pgTargetFinder(pgPtr,faultObj->pid, pageNum);
 					/* if the frame is dirty, move the page contents to the temporary buffer to be written to disk */
 					if(axBits & USLOSS_MMU_DIRTY){
 						// copy the page's contents into the pager daemon's buffer
-						memcpy(pageBuff,frameTable[clockHand]->page + USLOSS_MmuRegion(), USLOSS_MmuPageSize());
+						memcpy(pageBuff,frameTable[clockHand].page + USLOSS_MmuRegion(numPgsPtr), USLOSS_MmuPageSize());
 						// write the page contents to disk
-						pageDiskWrite(pageBuff, pageNum);
+						pageDiskWrite(pageBuff);
 						//
 
 					}
 					// search the page table for the appropriate page entry; create a new one if it doesn't exist
-					pgPtr = getPageTableEntry(processes[faultObj->pid % MAXPROC]->pageTable, pageNum);
+					pgPtr = getPageTableEntry(processes[faultObj->pid % MAXPROC].pageTable, pageNum);
 					// if the page has information stored on disk, write it to memory
 					if(pgPtr->state == INDISK)
 						pageDiskFetch(pgPtr->diskBlock, pgPtr->page);
 				}
 				// exit clockHand mutex
 				MboxCondReceive(clockHandMbox, dummy, 0);
-    		}for(dB = 0; dB < diskBlocks && diskBlocks[dB] == DB_UNUSED; dB++);
+    		}
+            int dB;
+            for(dB = 0; dB < numBlocks && diskBlocks[dB] == DB_UNUSED; dB++);
     	}
     	// Unblock waiting (faulting) process
     	MboxSend(faultObj->replyMbox, buf, 0);
@@ -528,7 +534,7 @@ PTE * getPageTableEntry(PTE * head, int pgNum){
 			break;
 		else if(target->nextPage == NULL){
 			// the page never had an entry; create one
-			target->nextPage = malloc(sizeof(PTE));for(dB = 0; dB < diskBlocks && diskBlocks[dB] == DB_UNUSED; dB++);
+			target->nextPage = malloc(sizeof(PTE));
 			target = target->nextPage;
 			target->page = pgNum;
 			target->diskBlock = -1;
@@ -544,7 +550,7 @@ void pageDiskFetch(int dB, int pg){
 } /* pageDiskFetch */
 
 // writes the contents of a page to disk, returns the datablock to which it was written
-int pageDiskWrite(pageBuff){
+int pageDiskWrite(char *pageBuff){
 	int dB;
 	int track;
 	int sector;
