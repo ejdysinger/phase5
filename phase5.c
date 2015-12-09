@@ -17,6 +17,7 @@ extern void mbox_condsend(systemArgs *args_ptr);
 extern void mbox_condreceive(systemArgs *args_ptr);
 void * vmInitReal(int mappings, int pages, int frames, int pagers);
 static int Pager(char *buf);
+void vmDestroyReal(void);
 
 Process processes[MAXPROC];
 int vmInitialized = 0;
@@ -179,6 +180,7 @@ static void
 vmDestroy(systemArgs *sysargsPtr)
 {
    CheckMode();
+    vmDestroyReal();
 } /* vmDestroy */
 
 
@@ -230,18 +232,28 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    }
 
    // malloc the frame table, initialize each frame within it and store its dimension
-   frameTable = malloc(frames * sizeof(FTE));
    frameTableSize = frames;
-   for(i = 0; i < frames; i++){
-	   // each frame gets an address in memory, starting at the top of the VM region
-	   frameTable[i]->frame = i*USLOSS_MmuPageSize() + USLOSS_MmuRegion(NULL);
+    
+    frameTable = malloc(sizeof(FTE));
+    frameTable->frame = 0;
+    frameTable->next = NULL;
+    frameTable->page = -1;
+    frameTable->procNum = -1;
+    frameTable->state = FR_UNUSED;
+
+    FTE *current = frameTable;
+    FTE *temp;
+   for(i = 1; i < frames; i++, current = current->next){
+        temp = malloc(sizeof(FTE));
+       
+	   // each frame gets a number
+       temp->frame = i;
+       temp->next = NULL;
+       temp->page = -1;
+       temp->state = FR_UNUSED;
+       temp->procNum = -1;
 	   // assign the next pointer
-	   if(i == frames - 1)
-		   frameTable[i]->next = NULL;
-	   else
-		   frameTable[i]->next = frameTable[i+1];
-	   frameTable[i]->page = -1;
-	   frameTable[i]->state = FR_UNUSED;
+       current->next = temp;
    }
 
    //. create disk occupancy table and calculate global disk params based on size of pages from MMU
@@ -275,9 +287,9 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    memset((char *) &vmStats, 0, sizeof(VmStats));
    vmStats.pages = pages;
    vmStats.frames = frames;
-   if ((i = DiskSize(1, &sec, &track, &disk)) != -1)
-	   vmStats.diskBlocks = disk / USLOSS_MmuPageSize();
+    vmStats.diskBlocks = numBlocks;
    vmStats.freeDiskBlocks = vmStats.diskBlocks;
+    vmStats.freeFrames = frames;
 
    return USLOSS_MmuRegion(&dummy);
 } /* vmInitReal */
