@@ -20,6 +20,10 @@
 #define DB_UNUSED	1401
 #define DB_INUSE	1402
 
+// states for Frames
+#define FR_UNUSED 1501
+#define FR_INUSE 1502
+
 /*
  * Page table entry.
  */
@@ -38,7 +42,7 @@ typedef struct PTE {
 typedef struct FTE {
 	void * frame;	// the frame; NULL if none
 	void * page;    // the page that references this frame (if any); NULL if none
-	int useBit;     // status of frame; DB_UNUSED if free, DB_INUSE if not free
+	int useBit;     // status of frame; FR_UNUSED if free, FR_INUSE if not free
     struct FTE * next;
 
 }FTE;
