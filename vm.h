@@ -33,7 +33,6 @@ typedef struct PTE {
     int  frame;      // Frame that stores the page (if any). -1 if none.
     int  diskBlock;  // Disk block that stores the page (if any). -1 if none.
     // Add more stuff here
-    int pageNum;
     struct PTE *nextPage;
 } PTE;
 
@@ -41,9 +40,10 @@ typedef struct PTE {
  * Frame table entry
  */
 typedef struct FTE {
-	int * frame;			// the frame number; -1 if none
-	int page;    		// the page that references this frame (if any); -1 if none
-	int useBit;	 	    // status of frame; FR_UNUSED if free, FR_INUSE if not free
+	int frame;          // the frame number reference
+	int page;           // the page that references this frame (if any); -1 if none
+	int procNum;        // the number of the process which owns the frame
+	int state;	 	    // status of frame; FR_UNUSED if free, FR_INUSE if not free
     struct FTE * next;
 
 } FTE;

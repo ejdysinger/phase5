@@ -67,10 +67,10 @@ p1_switch(int old, int new)
         int * numPagesPtr;
         // If a page is in memory, unmap
         if(temp->state == INCORE || temp->state == INBOTH){
-            reply = USLOSS_MmuGetMap(TAG, temp->pageNum, framePtr, protPtr);
+            reply = USLOSS_MmuGetMap(TAG, temp->page, framePtr, protPtr);
             if(reply == USLOSS_MMU_ERR_NOMAP){
                 if(debugFlag){
-                    USLOSS_Console("p1_switch(): No mapping found for the page %d for process # %d\n", temp->pageNum, old);
+                    USLOSS_Console("p1_switch(): No mapping found for the page %d for process # %d\n", temp->page, old);
                 }
                 continue;
             }
@@ -78,7 +78,7 @@ p1_switch(int old, int new)
             
             // Putting the frame message into a buffer to write to disk
             void * vmRegion = USLOSS_MmuRegion(numPagesPtr);
-            void * addr = vmRegion + temp->pageNum * USLOSS_MmuPageSize();
+            void * addr = vmRegion + temp->page * USLOSS_MmuPageSize();
             char * buffer;
             buffer = malloc(sizeof(USLOSS_MmuPageSize()));
             memcpy(buffer, addr, USLOSS_MmuPageSize());
@@ -100,9 +100,9 @@ p1_switch(int old, int new)
             FTE * tempFrame;
             tempFrame = frameTable;
             for(;tempFrame->next!= NULL && temp->frame!=(int)tempFrame->frame; tempFrame = tempFrame->next);
-            tempFrame->useBit=FR_UNUSED;
+            tempFrame->state=FR_UNUSED;
             vmStats.freeFrames++;
-            USLOSS_MmuUnmap(TAG, temp->pageNum);
+            USLOSS_MmuUnmap(TAG, temp->page);
             
         }
         
@@ -120,19 +120,20 @@ p1_switch(int old, int new)
             if(vmStats.freeFrames>0){
                 FTE * tempFrame;
                 tempFrame = frameTable;
-                for(;tempFrame->next!= NULL && tempFrame->useBit!=FR_UNUSED; tempFrame = tempFrame->next);
+                for(;tempFrame->next!= NULL && tempFrame->state!=FR_UNUSED; tempFrame = tempFrame->next);
                 char * buffer;
                 buffer = malloc(sizeof(USLOSS_MmuPageSize()));
                 reply = DiskRead(buffer, 1, (int)floor(tempPage->diskBlock/DBPerTrack), (tempPage->diskBlock%DBPerTrack)*sectsPerDB, sectsPerDB, &status);
                 
                 int *numPagesPtr;
                 void * vmRegion = USLOSS_MmuRegion(numPagesPtr);
-                void * addr = vmRegion + tempPage->pageNum * USLOSS_MmuPageSize();
+                void * addr = vmRegion + tempPage->page * USLOSS_MmuPageSize();
                 
                 memcpy(addr, buffer, USLOSS_MmuPageSize());
+
                 
                 // Update our models
-                tempFrame->useBit=FR_INUSE;
+                tempFrame->state=FR_INUSE;
                 tempPage->state=INCORE;
                 diskBlocks[tempPage->diskBlock-1] = DB_UNUSED;
                 
@@ -172,14 +173,14 @@ p1_quit(int pid)
         }
         /* If page is in memory, unload the mappings from page to frame */
         if(processes[getpid()%MAXPROC].pageTable->state == INCORE || processes[getpid()%MAXPROC].pageTable->state == INBOTH){
-            USLOSS_MmuUnmap(TAG, processes[getpid()%MAXPROC].pageTable->pageNum);
+            USLOSS_MmuUnmap(TAG, processes[getpid()%MAXPROC].pageTable->page);
         }
         
         /* Check frame tables and mark frames used by the process as UNUSED*/
         FTE * temp;
         temp = frameTable;
         for(;temp->next!= NULL && temp->frame!=processes[getpid()%MAXPROC].pageTable->frame; temp = temp->next);
-        temp->useBit=0;
+        temp->state=0;
         vmStats.freeFrames++;
         
         /* Free'ing all the page entries */
@@ -190,8 +191,6 @@ p1_quit(int pid)
     // Setting numPages to 0
     processes[getpid()%MAXPROC].numPages = 0;
     
-    /* Free'ing the page table */
-    free(&processes[getpid()%MAXPROC]);
     
     if (debugFlag)
         USLOSS_Console("p1_quit() called: pid = %d\n", pid);

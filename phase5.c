@@ -17,6 +17,7 @@ extern void mbox_condsend(systemArgs *args_ptr);
 extern void mbox_condreceive(systemArgs *args_ptr);
 void * vmInitReal(int mappings, int pages, int frames, int pagers);
 static int Pager(char *buf);
+void vmDestroyReal(void);
 
 Process processes[MAXPROC];
 int vmInitialized = 0;
@@ -178,6 +179,7 @@ static void
 vmDestroy(systemArgs *sysargsPtr)
 {
    CheckMode();
+    vmDestroyReal();
 } /* vmDestroy */
 
 
@@ -229,11 +231,28 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    }
 
    // malloc the frame table, initialize each frame within it and store its dimension
-   frameTable = malloc(frames * sizeof(FTE));
    frameTableSize = frames;
-   for(i = 0; i < frames; i++){
-	   frameTable[i].frame = malloc(sizeof(USLOSS_MmuPageSize()));
-	   frameTable[i].useBit = FR_UNUSED;
+    
+    frameTable = malloc(sizeof(FTE));
+    frameTable->frame = 0;
+    frameTable->next = NULL;
+    frameTable->page = -1;
+    frameTable->procNum = -1;
+    frameTable->state = FR_UNUSED;
+
+    FTE *current = frameTable;
+    FTE *temp;
+   for(i = 1; i < frames; i++, current = current->next){
+        temp = malloc(sizeof(FTE));
+       
+	   // each frame gets a number
+       temp->frame = i;
+       temp->next = NULL;
+       temp->page = -1;
+       temp->state = FR_UNUSED;
+       temp->procNum = -1;
+	   // assign the next pointer
+       current->next = temp;
    }
 
    //. create disk occupancy table and calculate global disk params based on size of pages from MMU
@@ -252,7 +271,7 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    faultMailBox = MboxCreate(MAXPROC, 0);
 
    // Create zero slot clockHand mailbox
-   clockHandMbox = MboxCreate(0,0);
+   clockHandMbox = MboxCreate(1,0);
 
    // Fork the pagers.
    for(i = 0; i < MAXPAGERS; i++){
@@ -264,9 +283,9 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    memset((char *) &vmStats, 0, sizeof(VmStats));
    vmStats.pages = pages;
    vmStats.frames = frames;
-   if ((i = DiskSize(1, &sec, &track, &disk)) != -1)
-	   vmStats.diskBlocks = disk / USLOSS_MmuPageSize();
+    vmStats.diskBlocks = numBlocks;
    vmStats.freeDiskBlocks = vmStats.diskBlocks;
+    vmStats.freeFrames = frames;
 
    return USLOSS_MmuRegion(&dummy);
 } /* vmInitReal */
@@ -411,12 +430,12 @@ Pager(char *buf)
 {
 	FaultMsg * faultObj = malloc(sizeof(struct FaultMsg));
 	int iter;
-	void * freeFrameFound;   // a pointer to a free frame in memory
+	int freeFrame;           // the index of the free frame
 	char * pageBuff;         // a buffer for a page that has been written and needs to be transferred to disk
 	char * dummy;            // a dummy buffer for mailbox operations
 	PTE * pgPtr;             // a pointer to the page table entry for an occupied frame
-	int pageNum;             // the page
 	int axBits;              // the access bits for a particular page
+	int pageNum;             // the page number for use in the page table
 
 	// allocate the page buffer and zero it out
 	pageBuff = malloc(USLOSS_MmuPageSize());
@@ -425,55 +444,62 @@ Pager(char *buf)
     while(1) {
         /* Wait for fault to occur (receive from mailbox) */
     	MboxReceive(faultMailBox, faultObj, sizeof(void*));
-    	/* if on returning from the mbox the pager daemon is to be terminated, terminate it */
+    	// if on returning from the mbox the pager daemon is to be terminated, terminate it
     	if(pagerkill) break;
 
-    	//calculate the page number
-		pageNum = faultObj->addr / USLOSS_MmuPageSize();
-
-    	/* Look for free frame in the frameTable */
-    	for(iter = 0; iter < frameTableSize; iter++){
-    		if(frameTable[iter].useBit == DB_UNUSED){
-    			freeFrameFound = frameTable[iter];
+    	// Look for free frame in the frameTable
+    	for(iter = 0, freeFrame = -1; iter < frameTableSize; iter++){
+    		if(frameTable[iter].state == FR_UNUSED){
+    			freeFrame = iter;
     			break;
     		}
     	}
+    	/* if a free frame was found, update the page table entry for the offending process
+    	 * with the free frame's pointer */
+    	if(freeFrame >= 0){
+    		// set pgPtr to the head of the process's page table
+    		pgPtr = processes[faultObj->pid % MAXPROC]->pageTable;
 
-    	// If a free frame isn't found then use clock algorithm to replace a page (perhaps write to disk)
-    	if(freeFrameFound == NULL){
+    	}
+    	/* If a free frame isn't found then use clock algorithm to replace a page within the
+    	 * frame table (perhaps write to disk) */
+    	else{
     		for(;;clockHand = ++clockHand % frameTableSize){
     			// enter clockHand mutex to check bits and possibly do assignment
-    			MboxReceive(clockHandMbox, dummy, 0);
+    			MboxSend(clockHandMbox, dummy, 0);
 
     			// retrieve the use bits to see if they have been referenced recently
-				USLOSS_MmuGetAccess(frameTable[clockHand]->frame,axBits);
+				USLOSS_MmuGetAccess(clockHand,axBits);
 				// if it has been referenced, change the marking to zero and continue
 				if(axBits & USLOSS_MMU_REF){
 					// set the reference bit to unread
 					axBits = axBits & USLOSS_MMU_DIRTY; // preserve value of dirty bit, set ref bit to zero
-					USLOSS_MmuSetAccess(frameTable[clockHand]->frame, axBits);
+					USLOSS_MmuSetAccess(clockHand, axBits);
 				}
 				// if the frame has not been referenced
 				else{
-					// if the frame is dirty, move the page contents to the temporary buffer to be written to disk
+					// find the page's entry in its process's page table, or create it otherwise
+					pageNum = faultObj->addr / USLOSS_MmuPageSize();
+					pgTargetFinder(pgPtr,faultObj->pid, pageNum);
+					/* if the frame is dirty, move the page contents to the temporary buffer to be written to disk */
 					if(axBits & USLOSS_MMU_DIRTY){
-						// set the pointer to that frame's page table entry
-						pgPtr = getPageTableEntry(faultObj->pid, frameTable[clockHand]->page);
-						// copy the frame into the temporary buffer
-						memcpy(pageBuff,frameTable[clockHand]->frame, USLOSS_MmuPageSize());
-						// erase the information stored in the frame's location
-						memset(frameTable[clockHand]->frame,0,USLOSS_MmuPageSize());
+						// copy the page's contents into the pager daemon's buffer
+						memcpy(pageBuff,frameTable[clockHand]->page + USLOSS_MmuRegion(), USLOSS_MmuPageSize());
+						writePageToDisk(pageBuff, pageNum);
 					}
+					pgPtr = processes[faultObj->pid % MAXPROC]->pageTable;
+					// search the page table for the appropriate page entry; create a new one if it doesn't exist
+					for(;pgPtr != NULL; pgPtr = pgPtr->nextPage){
+						if(pgPtr->page == (faultObj->addr / USLOSS_MmuPageSize())){
+							pgPtr->frame = clockHand;
+						}
+					}
+
 				}
 				// exit clockHand mutex
-				MboxSend(clockHandMbox, dummy, 0);
+				MboxReceive(clockHandMbox, dummy, 0);
     		}
     	}
-
-        // Load page into frame from disk, if necessary
-
-    	// load the mapping information into the faulted process's page table
-
     	// Unblock waiting (faulting) process
     	MboxSend(faultObj->replyMbox, buf, 0);
     }
