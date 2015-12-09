@@ -248,7 +248,6 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
     FTE *temp;
    for(i = 1; i < frames; i++, current = current->next){
         temp = malloc(sizeof(FTE));
-       
 	   // each frame gets a number
        temp->frame = i;
        temp->next = NULL;
