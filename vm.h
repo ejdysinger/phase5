@@ -29,6 +29,7 @@
  */
 typedef struct PTE {
     int  state;      // See above.
+    int  page;       // page offset in memory. -1 if none
     int  frame;      // Frame that stores the page (if any). -1 if none.
     int  diskBlock;  // Disk block that stores the page (if any). -1 if none.
     // Add more stuff here
@@ -40,9 +41,9 @@ typedef struct PTE {
  * Frame table entry
  */
 typedef struct FTE {
-	void * frame;	// the frame; NULL if none
-	void * page;    // the page that references this frame (if any); NULL if none
-	int useBit;     // status of frame; FR_UNUSED if free, FR_INUSE if not free
+	int * frame;			// the frame number; -1 if none
+	int page;    		// the page that references this frame (if any); -1 if none
+	int useBit;	 	    // status of frame; FR_UNUSED if free, FR_INUSE if not free
     struct FTE * next;
 
 }FTE;
