@@ -54,6 +54,7 @@ static void vmDestroy(systemArgs *sysargsPtr);
 
 int faultMailBox;
 int clockHandMbox;
+int dBMbox;
 
 int pagerHouses[MAXPAGERS]; /* keeps track of the pager PIDs to facilitate
 							 * murdering them later
@@ -273,6 +274,9 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    // Create zero slot clockHand mailbox
    clockHandMbox = MboxCreate(1,0);
 
+   // create disk block mbox
+   dBMbox = MboxCreate(1,0);
+
    // Fork the pagers.
    for(i = 0; i < MAXPAGERS; i++){
 	   sprintf(bufferName,"Pager %d", i+1);
@@ -457,9 +461,16 @@ Pager(char *buf)
     	/* if a free frame was found, update the page table entry for the offending process
     	 * with the free frame's pointer */
     	if(freeFrame >= 0){
-    		// set pgPtr to the head of the process's page table
-    		pgPtr = processes[faultObj->pid % MAXPROC]->pageTable;
-
+    		// search the page table for the appropriate page entry; create a new one if it doesn't exist
+			pgPtr = getPageTableEntry(processes[faultObj->pid % MAXPROC]->pageTable, pageNum);
+			// place the frame information in it and return
+			pgPtr->frame = freeFrame;
+			pgPtr->state = INCORE;
+			// if the page has information stored on disk, write it to memory
+			if(pgPtr->state == INDISK)
+				pageDiskFetch(pgPtr->diskBlock, pgPtr->page);
+			// set the frame's status
+			frameTable[freeFrame].state = FR_INUSE;
     	}
     	/* If a free frame isn't found then use clock algorithm to replace a page within the
     	 * frame table (perhaps write to disk) */
@@ -485,20 +496,20 @@ Pager(char *buf)
 					if(axBits & USLOSS_MMU_DIRTY){
 						// copy the page's contents into the pager daemon's buffer
 						memcpy(pageBuff,frameTable[clockHand]->page + USLOSS_MmuRegion(), USLOSS_MmuPageSize());
-						writePageToDisk(pageBuff, pageNum);
-					}
-					pgPtr = processes[faultObj->pid % MAXPROC]->pageTable;
-					// search the page table for the appropriate page entry; create a new one if it doesn't exist
-					for(;pgPtr != NULL; pgPtr = pgPtr->nextPage){
-						if(pgPtr->page == (faultObj->addr / USLOSS_MmuPageSize())){
-							pgPtr->frame = clockHand;
-						}
-					}
+						// write the page contents to disk
+						pageDiskWrite(pageBuff, pageNum);
+						//
 
+					}
+					// search the page table for the appropriate page entry; create a new one if it doesn't exist
+					pgPtr = getPageTableEntry(processes[faultObj->pid % MAXPROC]->pageTable, pageNum);
+					// if the page has information stored on disk, write it to memory
+					if(pgPtr->state == INDISK)
+						pageDiskFetch(pgPtr->diskBlock, pgPtr->page);
 				}
 				// exit clockHand mutex
-				MboxReceive(clockHandMbox, dummy, 0);
-    		}
+				MboxCondReceive(clockHandMbox, dummy, 0);
+    		}for(dB = 0; dB < diskBlocks && diskBlocks[dB] == DB_UNUSED; dB++);
     	}
     	// Unblock waiting (faulting) process
     	MboxSend(faultObj->replyMbox, buf, 0);
@@ -508,9 +519,47 @@ Pager(char *buf)
 
 
 
-PTE * getPageTableEntry(){
-	PTE * target;
+PTE * getPageTableEntry(PTE * head, int pgNum){
+	PTE * target = head;
 	// starting at the top of the process's page table
-	target = processes
-
+	for(;target != NULL; target = target->nextPage){
+		if(target->page == pgNum)
+			// the page table entry is found; return it
+			break;
+		else if(target->nextPage == NULL){
+			// the page never had an entry; create one
+			target->nextPage = malloc(sizeof(PTE));for(dB = 0; dB < diskBlocks && diskBlocks[dB] == DB_UNUSED; dB++);
+			target = target->nextPage;
+			target->page = pgNum;
+			target->diskBlock = -1;
+			break;
+		}
+	}
+	return target;
 } /* getPageTableEntry */
+
+// writes the contents of a page to disk
+void pageDiskFetch(int dB, int pg){
+
+} /* pageDiskFetch */
+
+// writes the contents of a page to disk, returns the datablock to which it was written
+int pageDiskWrite(pageBuff){
+	int dB;
+	int track;
+	int sector;
+	int status;
+	char * dummy;
+	// enter the diskwrite mmu
+	MboxSend(dBMbox, dummy, 0);
+	// find a free datablock and mark it as read
+	for(dB = 0; dB < diskBlocks && diskBlocks[dB] == DB_INUSE; dB++);
+	diskBlocks[dB] = DB_INUSE;
+	// translate the diskblock to track and sectors
+	track = dB/DBPerTrack;
+	sector = dB/sectsPerDB - (track * USLOSS_DISK_TRACK_SIZE);
+	// write the information to the disk
+	DiskWrite(pageBuff,1,track,sector,(USLOSS_MmuPageSize()/USLOSS_DISK_SECTOR_SIZE), &status);
+	// return the diskblock location of the page
+	return dB;
+}
